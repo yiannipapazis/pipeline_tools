@@ -180,9 +180,9 @@ class CacheSelected(bpy.types.Operator):
         return {'FINISHED'}
 
 class PipelineSettings(bpy.types.PropertyGroup):
-    path: bpy.props.StringProperty(
+    texture_path: bpy.props.StringProperty(
         name="Texture Path",
-        default="// ..\\textures\\",
+        default="//..\\textures\\",
         subtype="DIR_PATH",
         description="Define the path where to search for textures"
     )
@@ -194,14 +194,73 @@ class BuildMaterial(bpy.types.Operator):
 
     def execute(self, context):
 
-        #get actuve nateruak name
+        # get material name
+        active_material = context.active_object.active_material
+        name = active_material.name
+
+        # search folder
+        textures_path = os.path.normpath(bpy.path.abspath(
+            context.scene.PipelineSettings.texture_path))
+        
+        dir = os.listdir(textures_path)
+        files = [file for file in dir if file.startswith(name)]
+
+        nodes = active_material.node_tree.nodes
+        links = active_material.node_tree.links
 
         #import ue4 node
 
-        #find texture in folder with specified suffix
+        object_name = "Shader"
 
-        #create network
-        print(context.scene.PipelineSettings.path)
+        try:
+            material_output = nodes['Material Output']
+        except KeyError:
+            material_output = nodes.new("ShaderNodeOutputMaterial")
+        
+        # set all material outputs to inactive
+        for node in nodes:
+            if node.type == "OUTPUT_MATERIAL":
+                node.is_active_output = False
+        
+        material_output.is_active_output = True
+        
+        
+        shader_group = bpy.data.node_groups.get(object_name)
+        if not shader_group:
+            blend_path = os.path.join(
+                os.path.dirname(__file__), "blend", "UE4.blend")
+            inner_name = "NodeTree"
+            node = bpy.ops.wm.append(
+                filepath=os.path.join(blend_path, inner_name, object_name),
+                directory=os.path.join(blend_path, inner_name),
+                filename=object_name
+            )
+            shader_group = bpy.data.node_groups.get(object_name)
+        
+        shader_group = nodes.new("ShaderNodeGroup")
+        shader_group.node_tree = bpy.data.node_groups[object_name]
+
+        for file in files:
+            tex_path = os.path.join(textures_path,file)
+            tex_node = nodes.new("ShaderNodeTexImage")
+            tex = bpy.data.images.load(tex_path, check_existing=True)
+            tex_node.image = tex
+
+            name = file.rsplit('.')[0]
+            if name.endswith('_BC'):
+                links.new(tex_node.outputs[0],shader_group.inputs[0])
+                tex_node.image.colorspace_settings.name = "sRGB"
+                pass
+            elif name.endswith('_AO_R_M'):
+                links.new(tex_node.outputs[0],shader_group.inputs[2])
+                tex_node.image.colorspace_settings.name = "Non-Color"
+                pass
+            elif name.endswith('_N'):
+                links.new(tex_node.outputs[0], shader_group.inputs[1])
+                tex_node.image.colorspace_settings.name = "Non-Color"
+                pass
+        
+        links.new(shader_group.outputs[0], material_output.inputs[0])
 
         return {'FINISHED'}
 
@@ -211,12 +270,12 @@ class WORLD_PT_TexturePath(bpy.types.Panel):
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = 'material'
-    path : bpy.props.StringProperty(name="Texture Path", subtype ="DIR_PATH")
+    texture_path : bpy.props.StringProperty(name="Texture Path", subtype ="DIR_PATH")
 
     def draw(self, context):
         layout = self.layout
         layout.operator(BuildMaterial.bl_idname)
-        layout.prop(context.scene.PipelineSettings, "path")
+        layout.prop(context.scene.PipelineSettings, "texture_path")
 
 classes = (
     EdgeDamage,
