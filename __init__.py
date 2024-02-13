@@ -16,12 +16,14 @@ import os
 import tempfile
 import json
 
+"""
 def get_houdini():
     f = open(os.path.join(os.getenv("APPDATA"),"PipelineSettings.JSON"))
     data = json.load(f)
     return data["software"]["houdini"]
 HOUDINI = get_houdini()
 TEMPDIR = tempfile.gettempdir()
+"""
 
 bl_info = {
     "name" : "Pipeline Tools",
@@ -40,15 +42,17 @@ class TOPBAR_MT_pipeline_menu(bpy.types.Menu):
 
     def draw(self, context):
         layout = self.layout
-        layout.operator(EdgeDamage.bl_idname, icon_value=custom_icons["houdini"].icon_id)
-        layout.operator(CacheSelected.bl_idname, icon='FILE_TICK')
-        layout.operator(ImportCached.bl_idname, icon='IMPORT')
+        #layout.operator(EdgeDamage.bl_idname, icon_value=custom_icons["houdini"].icon_id)
+        #layout.operator(CacheSelected.bl_idname, icon='FILE_TICK')
+        #layout.operator(ImportCached.bl_idname, icon='IMPORT')
         layout.menu(RelatedFiles.bl_idname)
+        layout.operator(MatchMaterials.bl_idname, icon='MATERIAL')
         #layout.menu("TOPBAR_MT_help")
 
     def menu_draw(self, context):
         self.layout.menu("TOPBAR_MT_pipeline_menu")
 
+"""
 def cache_selected():
         folder_path = bpy.data.filepath
         folder_path = folder_path.replace("\\", "/")
@@ -78,35 +82,10 @@ def cache_selected():
         f.close()
 
         os.environ['CACHED_FILES'] = data_path
+"""
 
-class EdgeDamage(bpy.types.Operator):
-    bl_idname = "object.edge_damage"
-    bl_label = "Edge Damage"
-    bl_description = "Caches Selected. Loads files in Houdini and sets up Edge Damage network"
 
-    name : bpy.props.StringProperty(name="Object Name", default="")
-
-    @classmethod
-    def poll(self, context):
-        return bpy.data.is_saved is True and bpy.context.selected_objects > 0
-    
-    def execute(self, context):
-        cache_selected()
-        addon_path = os.path.dirname(__file__)
-
-        hip_path = bpy.data.filepath
-        hip_path = os.path.dirname(hip_path)
-        hip_path = os.path.join(hip_path,"houdini")
-        os.makedirs(hip_path,exist_ok=True)
-        hip_path = os.path.join(hip_path,self.name + ".hiplc")
-        os.environ['HIP_PATH'] = hip_path
-
-        subprocess.Popen([HOUDINI,os.path.join(addon_path,"houdini/edge_damage.py")])
-        return {'FINISHED'}
-    
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
-
+"""
 class ImportCached(bpy.types.Operator):
     bl_idname = "object.importcached"
     bl_label = "Import Cached"
@@ -119,6 +98,8 @@ class ImportCached(bpy.types.Operator):
     def execute(self, context):
         bpy.ops.import_scene.fbx(filepath=self.path, global_scale=100)
         return {'FINISHED'}
+
+"""
 
 class RelatedFiles(bpy.types.Menu):
     bl_label = "Related Files"
@@ -264,6 +245,32 @@ class BuildMaterial(bpy.types.Operator):
 
         return {'FINISHED'}
 
+class MatchMaterials(bpy.types.Operator):
+    bl_idname = "object.match_material"
+    bl_label = "Match Materials"
+    bl_description = "Match duplicate materials with materials in scene"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        return True
+
+    def execute(self, context):
+
+        objects = bpy.context.selected_objects
+        objects = [obj for obj in objects if obj.type == 'MESH']
+
+        for obj in objects:
+            for i, slot in enumerate(obj.material_slots):
+                name = slot.material.name
+                if "." in name:
+                    name = name[0:name.rfind(".")]
+                    if name in bpy.data.materials:
+                        mat = bpy.data.materials[name]
+                        obj.material_slots[i].material = mat
+        
+        return {"FINISHED"}
+
 class WORLD_PT_TexturePath(bpy.types.Panel):
     bl_label = "Pipeline"
     bl_idname = "WORLD_PT_TexturePath"
@@ -278,19 +285,21 @@ class WORLD_PT_TexturePath(bpy.types.Panel):
         layout.prop(context.scene.PipelineSettings, "texture_path")
 
 classes = (
-    EdgeDamage,
     WORLD_PT_TexturePath,
     BuildMaterial,
     PipelineSettings,
     RelatedFiles,
-    CacheSelected,
-    ImportCached,
-    TOPBAR_MT_pipeline_menu
+    #CacheSelected,
+    #ImportCached,
+    TOPBAR_MT_pipeline_menu,
+    MatchMaterials,
 )
 def register():
     for c in classes:
         bpy.utils.register_class(c)
     bpy.types.TOPBAR_MT_editor_menus.append(TOPBAR_MT_pipeline_menu.menu_draw)
+
+    bpy.types.MATERIAL_MT_context_menu.append(MatchMaterials)
 
     addon_path = os.path.dirname(__file__)
     icons_dir = os.path.join(addon_path,"icons")
@@ -304,6 +313,8 @@ def register():
 
 def unregister():
     bpy.types.TOPBAR_MT_editor_menus.remove(TOPBAR_MT_pipeline_menu.menu_draw)
+
+    bpy.types.MATERIAL_MT_context_menu.remove(MatchMaterials)
     for c in classes:
         bpy.utils.unregister_class(c)
 
